@@ -7,33 +7,36 @@ pub fn build(b: *std.Build) void {
     const version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 };
 
     // OS restrictions
-    if (builtin.os.tag != .linux) {
-        @compileError("only Linux is supported at the moment");
+    switch (builtin.object_format) {
+        .elf => {},
+        else => @compileError("Only ELF is supported at the moment"),
     }
 
     // CPU restrictions
-    if (builtin.cpu.arch != .x86_64) {
-        @compileError("only x86_64 is supported at the moment");
+    switch (builtin.cpu.arch) {
+        .x86_64, .aarch64 => {},
+        else => @compileError("Only x86_64 and aarch64 are supported at the moment"),
     }
 
     // Dependencies
-    const clap_dep = b.dependency("clap", .{ .target = target, .optimize = optimize });
+    const clap_dep = b.dependency("clap", .{
+        .target = target,
+        .optimize = optimize,
+    });
     const clap_mod = clap_dep.module("clap");
 
     // Executable
     const exe_step = b.step("exe", "Run executable");
 
     const exe = b.addExecutable(.{
-        .name = "dbg",
+        .name = "dobby",
         .target = target,
+        .link_libc = true,
         .version = version,
         .optimize = optimize,
         .root_source_file = b.path("src/main.zig"),
     });
     exe.root_module.addImport("clap", clap_mod);
-    exe.linkLibC();
-
-    b.installArtifact(exe);
 
     const exe_run = b.addRunArtifact(exe);
     if (b.args) |args| {

@@ -1,16 +1,35 @@
 const std = @import("std");
+const config = @import("config.zig");
+const Breakpoint = @import("Breakpoint.zig");
 
-const LineTable = @This();
+pub fn printSource(self: *std.dwarf.DwarfInfo, allocator: std.mem.Allocator, writer: anytype, pc: usize) !void {
+    const compile_unit = try self.findCompileUnit(pc);
+    const bp_line_info = try self.getLineNumberInfo(allocator, compile_unit.*, pc);
+    defer bp_line_info.deinit(allocator);
 
-pub const LineInfo = struct {
-    file_name: []const u8,
-    line: u64,
-};
+    var file = try std.fs.cwd().openFile(bp_line_info.file_name, .{});
+    const reader = file.reader();
+    defer file.close();
+
+    var cur_line_buf: [config.MAX_LINE_LEN]u8 = undefined;
+    var cur_line_stream = std.io.fixedBufferStream(cur_line_buf[0..]);
+    var cur_line: u32 = 1;
+    while (cur_line < bp_line_info.line - 1) : (cur_line += 1) {
+        try reader.streamUntilDelimiter(cur_line_stream.writer(), '\n', config.MAX_LINE_LEN);
+        cur_line_stream.reset();
+    }
+
+    for (bp_line_info.line - 1..bp_line_info.line + 2) |line| {
+        try reader.streamUntilDelimiter(cur_line_stream.writer(), '\n', config.MAX_LINE_LEN);
+        try writer.print("{} {s}\n", .{ line, cur_line_stream.getWritten() });
+        cur_line_stream.reset();
+    }
+}
 
 pub fn getLineAddress(
     dwarf_info: *std.dwarf.DwarfInfo,
     allocator: std.mem.Allocator,
-    target_line_info: LineInfo,
+    bp_loc: Breakpoint.Location,
 ) !usize {
     const compile_unit = dwarf_info.compile_unit_list.items[0];
     const compile_unit_cwd = try compile_unit.die.getAttrString(dwarf_info, std.dwarf.AT.comp_dir, dwarf_info.section(.debug_line_str), compile_unit);
@@ -19,7 +38,7 @@ pub fn getLineAddress(
     var fbr = std.dwarf.FixedBufferReader{ .buf = dwarf_info.section(.debug_line).?, .endian = dwarf_info.endian };
     try fbr.seekTo(line_info_offset);
 
-    const unit_header = try std.dwarf.readUnitHeader(&fbr);
+    const unit_header = try std.dwarf.readUnitHeader(&fbr, null);
     if (unit_header.unit_length == 0) return std.dwarf.missingDwarf();
     const next_offset = unit_header.header_length + unit_header.unit_length;
 
@@ -190,7 +209,7 @@ pub fn getLineAddress(
             switch (sub_op) {
                 std.dwarf.LNE.end_sequence => {
                     prog.end_sequence = true;
-                    if (try checkLineMatch(&prog, allocator, file_entries.items, target_line_info)) |address| return address;
+                    if (try checkLineMatch(&prog, allocator, file_entries.items, bp_loc)) |address| return address;
                     prog.reset();
                 },
                 std.dwarf.LNE.set_address => {
@@ -217,12 +236,12 @@ pub fn getLineAddress(
             const inc_line = @as(i32, line_base) + @as(i32, adjusted_opcode % line_range);
             prog.line += inc_line;
             prog.address += inc_addr;
-            if (try checkLineMatch(&prog, allocator, file_entries.items, target_line_info)) |address| return address;
+            if (try checkLineMatch(&prog, allocator, file_entries.items, bp_loc)) |address| return address;
             prog.basic_block = false;
         } else {
             switch (opcode) {
                 std.dwarf.LNS.copy => {
-                    if (try checkLineMatch(&prog, allocator, file_entries.items, target_line_info)) |address| return address;
+                    if (try checkLineMatch(&prog, allocator, file_entries.items, bp_loc)) |address| return address;
                     prog.basic_block = false;
                 },
                 std.dwarf.LNS.advance_pc => {
@@ -271,10 +290,10 @@ fn checkLineMatch(
     prog: *std.dwarf.LineNumberProgram,
     allocator: std.mem.Allocator,
     file_entries: []const std.dwarf.FileEntry,
-    target_line_info: LineInfo,
+    bp_loc: Breakpoint.Location,
 ) !?usize {
     if (prog.prev_valid and
-        target_line_info.line == prog.prev_line)
+        bp_loc.line == prog.prev_line)
     {
         const file_index = if (prog.version >= 5) prog.prev_file else i: {
             if (prog.prev_file == 0) return std.dwarf.missingDwarf();
@@ -289,7 +308,7 @@ fn checkLineMatch(
 
         const file_name = try std.fs.path.join(allocator, &.{ dir_name, file_entry.path });
 
-        if (std.mem.eql(u8, file_name, target_line_info.file_name)) {
+        if (std.mem.eql(u8, file_name, bp_loc.file_path_buf[0..bp_loc.file_path_len])) {
             return prog.prev_address;
         }
     }

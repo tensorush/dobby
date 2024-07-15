@@ -1,10 +1,10 @@
 const std = @import("std");
 const clap = @import("clap");
-const dbg = @import("dbg.zig");
+const dobby = @import("dobby.zig");
 
 const PARAMS = clap.parseParamsComptime(
-    \\-e, --exe <str>   Executable file path.
-    \\-h, --help        Display help menu.
+    \\-h, --help   Display help menu.
+    \\<str>        ELF file path.
     \\
 );
 
@@ -32,17 +32,17 @@ pub fn main() !void {
     };
     defer res.deinit();
 
-    var exe_file_path: []const u8 = "zig-out/bin/example";
+    var elf_file_path: []const u8 = "zig-out/bin/example";
 
-    if (res.args.exe) |exe| {
-        exe_file_path = exe;
+    if (res.positionals.len > 0) {
+        elf_file_path = res.positionals[0];
     }
 
     if (res.args.help != 0) {
         return clap.help(std.io.getStdErr().writer(), clap.Help, &PARAMS, .{});
     }
 
-    try dbg.debug(allocator, reader, writer, exe_file_path);
+    try dobby.debug(allocator, reader, writer, elf_file_path);
 
     try buf_writer.flush();
 }

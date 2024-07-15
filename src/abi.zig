@@ -1,17 +1,27 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const c = @cImport({
-    @cInclude("sys/user.h");
-});
-
-pub const PC_REGISTER: Register = switch (builtin.cpu.arch) {
+pub const PC: Register = switch (builtin.cpu.arch) {
     .x86_64 => .rip,
     .aarch64 => .pc,
     else => unreachable,
 };
 
-const Register = switch (builtin.cpu.arch) {
+pub const BP_INST: bp_inst_width_t = switch (builtin.cpu.arch) {
+    .x86_64 => 0xCC, // "int3"
+    .aarch64 => 0xD420_0000, // "brk #0"
+    else => unreachable,
+};
+
+pub const BP_INST_MASK: usize = ~@as(usize, std.math.maxInt(bp_inst_width_t));
+
+pub const bp_inst_width_t = switch (builtin.cpu.arch) {
+    .x86_64 => u8,
+    .aarch64 => u32,
+    else => unreachable,
+};
+
+pub const Register = switch (builtin.cpu.arch) {
     .x86_64 => enum {
         rax,
         rdx,
@@ -78,16 +88,3 @@ const Register = switch (builtin.cpu.arch) {
     },
     else => unreachable,
 };
-
-pub fn getRegisterValue(pid: std.posix.pid_t, comptime reg: Register) !u64 {
-    var c_regs: c.user_regs_struct = undefined;
-    try std.posix.ptrace(std.os.linux.PTRACE.GETREGS, pid, 0, @intFromPtr(&c_regs));
-    return @field(c_regs, @tagName(reg));
-}
-
-pub fn setRegisterValue(pid: std.posix.pid_t, comptime reg: Register, value: u64) !void {
-    var c_regs: c.user_regs_struct = undefined;
-    try std.posix.ptrace(std.os.linux.PTRACE.GETREGS, pid, 0, @intFromPtr(&c_regs));
-    @field(c_regs, @tagName(reg)) = value;
-    try std.posix.ptrace(std.os.linux.PTRACE.SETREGS, pid, 0, @intFromPtr(&c_regs));
-}
