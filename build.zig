@@ -57,8 +57,8 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path(EXAMPLES_DIR ++ EXAMPLE_NAME ++ ".zig"),
         });
 
-        const example_ins = b.addInstallArtifact(example, .{});
-        examples_step.dependOn(&example_ins.step);
+        const example_install = b.addInstallArtifact(example, .{});
+        examples_step.dependOn(&example_install.step);
     }
 
     b.default_step.dependOn(examples_step);
