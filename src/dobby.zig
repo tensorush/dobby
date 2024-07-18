@@ -125,7 +125,7 @@ pub fn debug(allocator: std.mem.Allocator, reader: anytype, writer: anytype, elf
             'o' => {
                 const fp = try ptrace.readRegister(pid, .rbp);
                 var ret_addr: usize = undefined;
-                try ptrace.readMemory(pid, fp + @divExact(@typeInfo(usize).Int.bits, 8), &ret_addr);
+                try ptrace.readMemory(pid, fp + @sizeOf(usize), &ret_addr);
 
                 var some_bp: Breakpoint = undefined;
                 var is_temp_bp = false;

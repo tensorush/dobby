@@ -45,20 +45,23 @@ pub fn build(b: *std.Build) void {
     exe_step.dependOn(&exe_run.step);
     b.default_step.dependOn(exe_step);
 
-    // Example
-    const example_step = b.step("example", "Install example");
+    // Example suite
+    const examples_step = b.step("example", "Install example suite");
 
-    const example = b.addExecutable(.{
-        .name = "example",
-        .target = target,
-        .version = version,
-        .optimize = optimize,
-        .root_source_file = b.path("examples/basic.zig"),
-    });
+    inline for (EXAMPLE_NAMES) |EXAMPLE_NAME| {
+        const example = b.addExecutable(.{
+            .name = EXAMPLE_NAME,
+            .target = target,
+            .version = version,
+            .optimize = optimize,
+            .root_source_file = b.path(EXAMPLES_DIR ++ EXAMPLE_NAME ++ ".zig"),
+        });
 
-    const example_ins = b.addInstallArtifact(example, .{});
-    example_step.dependOn(&example_ins.step);
-    b.default_step.dependOn(example_step);
+        const example_ins = b.addInstallArtifact(example, .{});
+        examples_step.dependOn(&example_ins.step);
+    }
+
+    b.default_step.dependOn(examples_step);
 
     // Formatting checks
     const fmt_step = b.step("fmt", "Run formatting checks");
@@ -67,9 +70,16 @@ pub fn build(b: *std.Build) void {
         .paths = &.{
             "src/",
             "build.zig",
+            EXAMPLES_DIR,
         },
         .check = true,
     });
     fmt_step.dependOn(&fmt.step);
     b.default_step.dependOn(fmt_step);
 }
+
+const EXAMPLES_DIR = "examples/";
+
+const EXAMPLE_NAMES = &.{
+    "basic",
+};
