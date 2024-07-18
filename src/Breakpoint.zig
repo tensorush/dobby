@@ -8,7 +8,7 @@ const Breakpoint = @This();
 pub const Location = struct {
     file_path_buf: [config.MAX_LINE_LEN]u8,
     file_path_len: u8,
-    line: u32,
+    line_num: u32,
 };
 
 saved_inst: abi.bp_inst_width_t = undefined,

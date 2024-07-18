@@ -55,27 +55,23 @@ pub fn debug(allocator: std.mem.Allocator, reader: anytype, writer: anytype, elf
     try writer.writeAll("<dobby> \n");
 
     // Handle user commands
-    while (true) {
-        var line_buf: [config.MAX_LINE_LEN]u8 = undefined;
-        var line_stream = std.io.fixedBufferStream(line_buf[0..]);
-        try reader.streamUntilDelimiter(line_stream.writer(), '\n', config.MAX_LINE_LEN);
-        const line_slice = line_stream.getWritten();
-
-        switch (line_slice[0]) {
+    var line_buf: [config.MAX_LINE_LEN]u8 = undefined;
+    while (try reader.readUntilDelimiterOrEof(line_buf[0..], '\n')) |line| {
+        switch (line[0]) {
             'b' => {
                 const bp_loc: Breakpoint.Location = blk: {
-                    var line_iter = std.mem.tokenizeScalar(u8, line_slice[2..], ' ');
+                    var line_iter = std.mem.tokenizeScalar(u8, line[2..], ' ');
                     const file_path = line_iter.next().?;
                     if (file_path.len > config.MAX_LINE_LEN) {
                         return error.FileNameTooLong;
                     }
                     var file_path_buf: [config.MAX_LINE_LEN]u8 = undefined;
                     @memcpy(file_path_buf[0..], file_path);
-                    const line = try std.fmt.parseUnsigned(u8, line_iter.next().?, 10);
+                    const line_num = try std.fmt.parseUnsigned(u8, line_iter.next().?, 10);
                     break :blk .{
                         .file_path_buf = file_path_buf,
                         .file_path_len = @truncate(file_path.len),
-                        .line = line,
+                        .line_num = line_num,
                     };
                 };
                 const bp_addr = try LineTable.getLineAddress(dwarf_info, allocator, bp_loc);

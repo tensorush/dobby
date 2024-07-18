@@ -14,14 +14,14 @@ pub fn printSource(self: *std.dwarf.DwarfInfo, allocator: std.mem.Allocator, wri
     var cur_line_buf: [config.MAX_LINE_LEN]u8 = undefined;
     var cur_line_stream = std.io.fixedBufferStream(cur_line_buf[0..]);
     var cur_line: u32 = 1;
-    while (cur_line < bp_line_info.line - 1) : (cur_line += 1) {
+    while (cur_line < bp_line_info.line_num - 1) : (cur_line += 1) {
         try reader.streamUntilDelimiter(cur_line_stream.writer(), '\n', config.MAX_LINE_LEN);
         cur_line_stream.reset();
     }
 
-    for (bp_line_info.line - 1..bp_line_info.line + 2) |line| {
+    for (bp_line_info.line_num - 1..bp_line_info.line_num + 2) |line_num| {
         try reader.streamUntilDelimiter(cur_line_stream.writer(), '\n', config.MAX_LINE_LEN);
-        try writer.print("{} {s}\n", .{ line, cur_line_stream.getWritten() });
+        try writer.print("{} {s}\n", .{ line_num, cur_line_stream.getWritten() });
         cur_line_stream.reset();
     }
 }
