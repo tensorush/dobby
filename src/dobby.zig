@@ -11,10 +11,10 @@ const HELP =
     \\  TODO: l - list breakpoints, watchpoints, threads
     \\  TODO: t <uint> - switch to thread <uint>
     \\  a - assembly-level single step
-    \\  TODO: s - source-level single step
+    \\  s - source-level single step
     \\  TODO: p - print variables
     \\  d - dump registers
-    \\  TODO: v - step over
+    \\  v - step over
     \\  o - step out
     \\  c - continue
     \\  r - restart
@@ -87,43 +87,39 @@ pub fn debug(allocator: std.mem.Allocator, reader: anytype, writer: anytype, elf
             },
             't' => @panic("TODO"),
             'a' => {
-                const pc = try ptrace.readRegister(pid, abi.PC);
-                if (bps.getPtr(pc)) |bp| {
-                    try bp.reset();
-                } else {
-                    try ptrace.singleStep(pid);
-                }
+                try assemblyLevelSingleStep(pid, &bps);
+                try LineTable.printSource(dwarf_info, allocator, writer, try ptrace.readRegister(pid, abi.PC));
+            },
+            's' => {
+                const pc = try sourceLevelSingleStep(allocator, pid, &dwarf_info, &bps);
                 try LineTable.printSource(dwarf_info, allocator, writer, pc);
             },
-            's' => @panic("TODO"),
             'p' => @panic("TODO"),
             'd' => {
                 inline for (comptime std.enums.values(abi.Register)) |reg| {
                     try writer.print("{} = {}", .{ reg, try ptrace.readRegister(pid, reg) });
                 }
             },
-            'v' => @panic("TODO"),
-            'o' => {
-                const fp = try ptrace.readRegister(pid, .rbp);
-                var ret_addr: usize = undefined;
-                try ptrace.readMemory(pid, fp + @sizeOf(usize), &ret_addr);
-
-                var some_bp: Breakpoint = undefined;
-                var is_temp_bp = false;
-                if (bps.get(ret_addr)) |bp| {
-                    some_bp = bp;
-                } else {
-                    some_bp = try Breakpoint.init(pid, ret_addr);
-                    is_temp_bp = true;
+            'v' => {
+                var pc = try ptrace.readRegister(pid, abi.PC);
+                blk: {
+                    for (dwarf_info.func_list.items) |func| {
+                        if (func.pc_range) |pc_range| {
+                            if (pc_range.start == pc) {
+                                break :blk;
+                            }
+                        }
+                    }
+                    try writer.writeAll("Stepping over is only possible at call sites!\n");
                 }
 
-                try some_bp.reset();
-                const pc = try ptrace.continueExecution(pid);
+                _ = try sourceLevelSingleStep(allocator, pid, &dwarf_info, &bps);
+                pc = try stepOut(pid, &bps);
                 try LineTable.printSource(dwarf_info, allocator, writer, pc);
-
-                if (is_temp_bp) {
-                    try some_bp.unset();
-                }
+            },
+            'o' => {
+                const pc = try stepOut(pid, &bps);
+                try LineTable.printSource(dwarf_info, allocator, writer, pc);
             },
             'c' => {
                 if (bps.getPtr(try ptrace.readRegister(pid, abi.PC))) |bp| {
@@ -131,6 +127,7 @@ pub fn debug(allocator: std.mem.Allocator, reader: anytype, writer: anytype, elf
                         try bp.reset();
                     }
                 }
+
                 const pc = try ptrace.continueExecution(pid);
                 try LineTable.printSource(dwarf_info, allocator, writer, pc);
             },
@@ -145,9 +142,64 @@ pub fn debug(allocator: std.mem.Allocator, reader: anytype, writer: anytype, elf
             },
             'h' => try writer.writeAll(HELP),
             'q' => break,
-            else => |command| try writer.print("Unknown command: '{c}'\n", .{command}),
+            else => |command| try writer.print("Unknown command: '{c}'!\n", .{command}),
         }
 
         try writer.writeAll("<dobby> ");
     }
+}
+
+pub fn assemblyLevelSingleStep(pid: std.posix.pid_t, bps: *std.AutoHashMapUnmanaged(usize, Breakpoint)) !void {
+    const pc = try ptrace.readRegister(pid, abi.PC);
+    if (bps.getPtr(pc)) |bp| {
+        try bp.reset();
+    } else {
+        try ptrace.singleStep(pid);
+    }
+}
+
+pub fn sourceLevelSingleStep(allocator: std.mem.Allocator, pid: std.posix.pid_t, dwarf_info: *std.dwarf.DwarfInfo, bps: *std.AutoHashMapUnmanaged(usize, Breakpoint)) !usize {
+    var pc = try ptrace.readRegister(pid, abi.PC);
+    const compile_unit = try dwarf_info.findCompileUnit(pc);
+    var line_info = try dwarf_info.getLineNumberInfo(allocator, compile_unit.*, pc);
+    defer line_info.deinit(allocator);
+
+    while (true) {
+        try assemblyLevelSingleStep(pid, bps);
+
+        pc = try ptrace.readRegister(pid, abi.PC);
+        var new_line_info = try dwarf_info.getLineNumberInfo(allocator, compile_unit.*, pc);
+        defer new_line_info.deinit(allocator);
+
+        if (std.meta.eql(new_line_info, line_info)) {
+            break;
+        }
+    }
+
+    return pc;
+}
+
+pub fn stepOut(pid: std.posix.pid_t, bps: *std.AutoHashMapUnmanaged(usize, Breakpoint)) !usize {
+    const fp = try ptrace.readRegister(pid, .rbp);
+    var ret_addr: usize = undefined;
+    try ptrace.readMemory(pid, fp + @sizeOf(usize), &ret_addr);
+
+    var some_bp: Breakpoint = undefined;
+    var is_temp_bp = false;
+    if (bps.get(ret_addr)) |bp| {
+        some_bp = bp;
+    } else {
+        some_bp = try Breakpoint.init(pid, ret_addr);
+        is_temp_bp = true;
+    }
+
+    try some_bp.reset();
+
+    const pc = try ptrace.continueExecution(pid);
+
+    if (is_temp_bp) {
+        try some_bp.unset();
+    }
+
+    return pc;
 }

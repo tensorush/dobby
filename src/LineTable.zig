@@ -4,25 +4,23 @@ const Breakpoint = @import("Breakpoint.zig");
 
 pub fn printSource(self: *std.dwarf.DwarfInfo, allocator: std.mem.Allocator, writer: anytype, pc: usize) !void {
     const compile_unit = try self.findCompileUnit(pc);
-    const bp_line_info = try self.getLineNumberInfo(allocator, compile_unit.*, pc);
+    var bp_line_info = try self.getLineNumberInfo(allocator, compile_unit.*, pc);
     defer bp_line_info.deinit(allocator);
 
     var file = try std.fs.cwd().openFile(bp_line_info.file_name, .{});
     const reader = file.reader();
     defer file.close();
 
-    var cur_line_buf: [config.MAX_LINE_LEN]u8 = undefined;
-    var cur_line_stream = std.io.fixedBufferStream(cur_line_buf[0..]);
-    var cur_line: u32 = 1;
-    while (cur_line < bp_line_info.line_num - 1) : (cur_line += 1) {
-        try reader.streamUntilDelimiter(cur_line_stream.writer(), '\n', config.MAX_LINE_LEN);
-        cur_line_stream.reset();
+    var line_buf: [config.MAX_LINE_LEN]u8 = undefined;
+    var line_num: u32 = 1;
+    while (line_num < bp_line_info.line_num - 1) : (line_num += 1) {
+        const line = try reader.readUntilDelimiterOrEof(line_buf[0..], '\n');
+        _ = line.?;
     }
 
-    for (bp_line_info.line_num - 1..bp_line_info.line_num + 2) |line_num| {
-        try reader.streamUntilDelimiter(cur_line_stream.writer(), '\n', config.MAX_LINE_LEN);
-        try writer.print("{} {s}\n", .{ line_num, cur_line_stream.getWritten() });
-        cur_line_stream.reset();
+    while (line_num < bp_line_info.line_num + 2) {
+        const line = try reader.readUntilDelimiterOrEof(line_buf[0..], '\n');
+        try writer.print("{} {s}\n", .{ line_num, line.? });
     }
 }
 
