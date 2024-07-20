@@ -3,7 +3,25 @@ const abi = @import("abi.zig");
 
 const c = @cImport({
     @cInclude("sys/user.h");
+    // @cInclude("sys/personality.h");
 });
+
+pub fn traceDebuggee(elf_file_path: []const u8) std.posix.pid_t {
+    const pid = try std.posix.fork();
+    if (pid == 0) {
+        // c.personality(ADDR_NO_RANDOMIZE);
+        try std.posix.ptrace(std.os.linux.PTRACE.TRACEME, pid, 0, 0);
+        const posix_exe_file_path = try std.posix.toPosixPath(elf_file_path);
+        std.posix.execveZ(
+            &posix_exe_file_path,
+            @ptrCast(std.os.argv.ptr),
+            @ptrCast(std.os.environ.ptr),
+        ) catch @panic("Failed to execute debuggee!");
+    }
+    waitForTrapSignal(pid);
+    try killOnExit(pid);
+    return pid;
+}
 
 pub fn continueExecution(pid: std.posix.pid_t) !usize {
     try std.posix.ptrace(std.os.linux.PTRACE.CONT, pid, 0, 0);

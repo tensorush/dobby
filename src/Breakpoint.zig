@@ -11,7 +11,7 @@ pub const Location = struct {
     line_num: u32,
 };
 
-saved_inst: abi.bp_inst_width_t = undefined,
+saved_inst: abi.trap_inst_width_t = undefined,
 loc: ?Location = null,
 is_set: bool = false,
 pid: std.posix.pid_t,
@@ -32,7 +32,7 @@ pub fn initLocation(pid: std.posix.pid_t, addr: usize, loc: Location) !Breakpoin
 pub fn set(self: *Breakpoint) !void {
     var inst: usize = undefined;
     try ptrace.readAddress(self.pid, self.addr, &inst);
-    try ptrace.writeAddress(self.pid, self.addr, (inst & abi.BP_INST_MASK) | abi.BP_INST);
+    try ptrace.writeAddress(self.pid, self.addr, (inst & abi.TRAP_INST_MASK) | abi.TRAP_INST);
     self.saved_inst = @truncate(inst);
     self.is_set = true;
 }
@@ -40,7 +40,7 @@ pub fn set(self: *Breakpoint) !void {
 pub fn unset(self: *Breakpoint) !void {
     var inst: usize = undefined;
     try ptrace.readAddress(self.pid, self.addr, &inst);
-    try ptrace.writeAddress(self.pid, self.addr, (inst & abi.BP_INST_MASK) | self.saved_inst);
+    try ptrace.writeAddress(self.pid, self.addr, (inst & abi.TRAP_INST_MASK) | self.saved_inst);
     self.saved_inst = undefined;
     self.is_set = false;
 }

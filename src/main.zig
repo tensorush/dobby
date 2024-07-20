@@ -3,8 +3,9 @@ const clap = @import("clap");
 const dobby = @import("dobby.zig");
 
 const PARAMS = clap.parseParamsComptime(
-    \\-h, --help   Display help menu.
-    \\<str>        ELF file path.
+    \\-a, --args <str>   Debuggee CLI arguments.
+    \\-h, --help         Display help.
+    \\<str>              Debugee ELF file path.
     \\
 );
 
@@ -15,21 +16,16 @@ pub fn main() !void {
     };
 
     var arena = std.heap.ArenaAllocator.init(gpa.allocator());
-    defer arena.deinit();
     const allocator = arena.allocator();
+    defer arena.deinit();
 
     const std_in = std.io.getStdIn();
     const reader = std_in.reader();
 
     const std_out = std.io.getStdOut();
-    var buf_writer = std.io.bufferedWriter(std_out.writer());
-    const writer = buf_writer.writer();
+    const writer = std_out.writer();
 
-    var diag = clap.Diagnostic{};
-    var res = clap.parse(clap.Help, &PARAMS, clap.parsers.default, .{ .allocator = allocator, .diagnostic = &diag }) catch |err| {
-        diag.report(std.io.getStdErr().writer(), err) catch {};
-        return err;
-    };
+    var res = try clap.parse(clap.Help, &PARAMS, clap.parsers.default, .{ .allocator = allocator });
     defer res.deinit();
 
     var elf_file_path: []const u8 = "zig-out/bin/example";
@@ -43,6 +39,4 @@ pub fn main() !void {
     }
 
     try dobby.debug(allocator, reader, writer, elf_file_path);
-
-    try buf_writer.flush();
 }

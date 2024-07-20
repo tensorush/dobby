@@ -7,22 +7,22 @@ pub const PC: Register = switch (builtin.cpu.arch) {
     else => unreachable,
 };
 
-pub const BP_INST: bp_inst_width_t = switch (builtin.cpu.arch) {
+pub const TRAP_INST: trap_inst_width_t = switch (builtin.cpu.arch) {
     .x86_64 => 0xCC, // "int3"
     .aarch64 => 0xD420_0000, // "brk #0"
     else => unreachable,
 };
 
-pub const BP_INST_MASK: usize = ~@as(usize, std.math.maxInt(bp_inst_width_t));
+pub const TRAP_INST_MASK: usize = ~@as(usize, std.math.maxInt(trap_inst_width_t));
 
-pub const bp_inst_width_t = switch (builtin.cpu.arch) {
+pub const trap_inst_width_t = switch (builtin.cpu.arch) {
     .x86_64 => u8,
     .aarch64 => u32,
     else => unreachable,
 };
 
 pub const Register = switch (builtin.cpu.arch) {
-    .x86_64 => enum {
+    .x86_64 => enum(u5) {
         rax,
         rdx,
         rcx,
@@ -40,16 +40,76 @@ pub const Register = switch (builtin.cpu.arch) {
         r14,
         r15,
         rip,
-        eflags,
+        xmm0,
+        xmm1,
+        xmm2,
+        xmm3,
+        xmm4,
+        xmm5,
+        xmm6,
+        xmm7,
+        xmm8,
+        xmm9,
+        xmm10,
+        xmm11,
+        xmm12,
+        xmm13,
+        xmm14,
+        xmm15,
+        st0,
+        st1,
+        st2,
+        st3,
+        st4,
+        st5,
+        st6,
+        st7,
+        mm0,
+        mm1,
+        mm2,
+        mm3,
+        mm4,
+        mm5,
+        mm6,
+        mm7,
+        rflags,
+        es,
         cs,
         ss,
-        fs_base,
-        gs_base,
         ds,
-        es,
         fs,
         gs,
-        orig_rax,
+        fs_base = 58,
+        gs_base,
+        tr = 62,
+        ldtr,
+        mxcsr,
+        fcw,
+        fsw,
+        xmm16,
+        xmm17,
+        xmm18,
+        xmm19,
+        xmm20,
+        xmm21,
+        xmm22,
+        xmm23,
+        xmm24,
+        xmm25,
+        xmm26,
+        xmm27,
+        xmm28,
+        xmm29,
+        xmm30,
+        xmm31,
+        k0 = 118,
+        k1,
+        k2,
+        k3,
+        k4,
+        k5,
+        k6,
+        k7,
     },
     .aarch64 => enum {
         r0,

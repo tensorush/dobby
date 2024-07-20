@@ -6,36 +6,26 @@ const LineTable = @import("LineTable.zig");
 const Breakpoint = @import("Breakpoint.zig");
 
 const HELP =
-    \\b <str> <int> - toggle breakpoint in file <str> at line <int>
-    \\a - assembly single step
-    \\s - source single step
-    \\l - list breakpoints
-    \\p - print variables
-    \\d - dump registers
-    \\v - step over
-    \\c - continue
-    \\o - step out
-    \\i - step in
-    \\r - restart
-    \\h - help
-    \\q - quit
+    \\  b <str>:<uint> - toggle breakpoint in file <str> at line <uint>
+    \\  TODO: w <str> - toggle watchpoint at variable <str>
+    \\  TODO: l - list breakpoints, watchpoints, threads
+    \\  TODO: t <uint> - switch to thread <uint>
+    \\  a - assembly-level single step
+    \\  TODO: s - source-level single step
+    \\  TODO: p - print variables
+    \\  d - dump registers
+    \\  TODO: v - step over
+    \\  o - step out
+    \\  c - continue
+    \\  r - restart
+    \\  h - help
+    \\  q - quit
     \\
 ;
 
 pub fn debug(allocator: std.mem.Allocator, reader: anytype, writer: anytype, elf_file_path: []const u8) !void {
-    // Spawn debuggee
-    const pid = try std.posix.fork();
-
-    // Branch into debuggee
-    if (pid == 0) {
-        try std.posix.ptrace(std.os.linux.PTRACE.TRACEME, pid, 0, 0);
-        const posix_exe_file_path = try std.posix.toPosixPath(elf_file_path);
-        std.posix.execveZ(&posix_exe_file_path, @ptrCast(std.os.argv.ptr), @ptrCast(std.os.environ.ptr)) catch unreachable;
-    }
-
-    // Wait for debuggee to be trapped
-    ptrace.waitForTrapSignal(pid);
-    try ptrace.killOnExit(pid);
+    // Trace debuggee
+    var pid = try ptrace.traceDebuggee(elf_file_path);
 
     // Read user program's DWARF information
     var sections: std.dwarf.DwarfInfo.SectionArray = std.dwarf.DwarfInfo.null_section_array;
@@ -52,7 +42,7 @@ pub fn debug(allocator: std.mem.Allocator, reader: anytype, writer: anytype, elf
     try writer.writeAll(HELP);
 
     // Prompt user for input
-    try writer.writeAll("<dobby> \n");
+    try writer.writeAll("<dobby> ");
 
     // Handle user commands
     var line_buf: [config.MAX_LINE_LEN]u8 = undefined;
@@ -86,6 +76,16 @@ pub fn debug(allocator: std.mem.Allocator, reader: anytype, writer: anytype, elf
                     );
                 }
             },
+            'w' => @panic("TODO"),
+            'l' => {
+                var bps_iter = bps.valueIterator();
+                while (bps_iter.next()) |bp| {
+                    try writer.print("{}\n", .{bp.loc.?});
+                }
+                //TODO: Add watchpoints
+                //TODO: Add threads
+            },
+            't' => @panic("TODO"),
             'a' => {
                 const pc = try ptrace.readRegister(pid, abi.PC);
                 if (bps.getPtr(pc)) |bp| {
@@ -96,12 +96,6 @@ pub fn debug(allocator: std.mem.Allocator, reader: anytype, writer: anytype, elf
                 try LineTable.printSource(dwarf_info, allocator, writer, pc);
             },
             's' => @panic("TODO"),
-            'l' => {
-                var bps_iter = bps.valueIterator();
-                while (bps_iter.next()) |bp| {
-                    try writer.print("{}\n", .{bp.loc.?});
-                }
-            },
             'p' => @panic("TODO"),
             'd' => {
                 inline for (comptime std.enums.values(abi.Register)) |reg| {
@@ -109,15 +103,6 @@ pub fn debug(allocator: std.mem.Allocator, reader: anytype, writer: anytype, elf
                 }
             },
             'v' => @panic("TODO"),
-            'c' => {
-                if (bps.getPtr(try ptrace.readRegister(pid, abi.PC))) |bp| {
-                    if (bp.is_set) {
-                        try bp.reset();
-                    }
-                }
-                const pc = try ptrace.continueExecution(pid);
-                try LineTable.printSource(dwarf_info, allocator, writer, pc);
-            },
             'o' => {
                 const fp = try ptrace.readRegister(pid, .rbp);
                 var ret_addr: usize = undefined;
@@ -140,13 +125,29 @@ pub fn debug(allocator: std.mem.Allocator, reader: anytype, writer: anytype, elf
                     try some_bp.unset();
                 }
             },
-            'i' => @panic("TODO"),
-            'r' => @panic("TODO"),
+            'c' => {
+                if (bps.getPtr(try ptrace.readRegister(pid, abi.PC))) |bp| {
+                    if (bp.is_set) {
+                        try bp.reset();
+                    }
+                }
+                const pc = try ptrace.continueExecution(pid);
+                try LineTable.printSource(dwarf_info, allocator, writer, pc);
+            },
+            'r' => {
+                try std.posix.kill(pid, std.posix.SIG.KILL);
+                pid = try ptrace.traceDebuggee(elf_file_path);
+
+                var bps_iter = bps.valueIterator();
+                while (bps_iter.next()) |bp| {
+                    bp.pid = pid;
+                }
+            },
             'h' => try writer.writeAll(HELP),
             'q' => break,
             else => |command| try writer.print("Unknown command: '{c}'\n", .{command}),
         }
 
-        try writer.writeAll("<dobby> \n");
+        try writer.writeAll("<dobby> ");
     }
 }
