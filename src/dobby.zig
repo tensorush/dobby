@@ -24,6 +24,8 @@ const HELP =
 ;
 
 pub fn debug(allocator: std.mem.Allocator, reader: anytype, writer: anytype, elf_file_path: []const u8) !void {
+    const cur_dir = std.fs.cwd();
+
     // Trace debuggee
     var pid = try ptrace.traceDebuggee(elf_file_path);
 
@@ -50,13 +52,15 @@ pub fn debug(allocator: std.mem.Allocator, reader: anytype, writer: anytype, elf
         switch (line[0]) {
             'b' => {
                 const bp_loc: Breakpoint.Location = blk: {
-                    var line_iter = std.mem.tokenizeScalar(u8, line[2..], ' ');
-                    const file_path = line_iter.next().?;
-                    if (file_path.len > config.MAX_LINE_LEN) {
-                        return error.FileNameTooLong;
-                    }
+                    var line_iter = std.mem.tokenizeScalar(u8, line[2..], ':');
                     var file_path_buf: [config.MAX_LINE_LEN]u8 = undefined;
-                    @memcpy(file_path_buf[0..], file_path);
+                    const file_path = blk2: {
+                        const file_path = line_iter.next().?;
+                        if (file_path.len > config.MAX_LINE_LEN) {
+                            return error.FileNameTooLong;
+                        }
+                        break :blk2 try cur_dir.realpath(file_path, file_path_buf[0..]);
+                    };
                     const line_num = try std.fmt.parseUnsigned(u8, line_iter.next().?, 10);
                     break :blk .{
                         .file_path_buf = file_path_buf,
@@ -80,7 +84,7 @@ pub fn debug(allocator: std.mem.Allocator, reader: anytype, writer: anytype, elf
             'l' => {
                 var bps_iter = bps.valueIterator();
                 while (bps_iter.next()) |bp| {
-                    try writer.print("{}\n", .{bp.loc.?});
+                    try writer.print("  {s}:{}\n", .{ bp.loc.file_path_buf[0..bp.loc.file_path_len], bp.loc.line_num });
                 }
                 //TODO: Add watchpoints
                 //TODO: Add threads
@@ -91,13 +95,13 @@ pub fn debug(allocator: std.mem.Allocator, reader: anytype, writer: anytype, elf
                 try LineTable.printSource(dwarf_info, allocator, writer, try ptrace.readRegister(pid, abi.PC));
             },
             's' => {
-                const pc = try sourceLevelSingleStep(allocator, pid, &dwarf_info, &bps);
+                const pc = try sourceLevelSingleStep(allocator, pid, dwarf_info, &bps);
                 try LineTable.printSource(dwarf_info, allocator, writer, pc);
             },
             'p' => @panic("TODO"),
             'd' => {
                 inline for (comptime std.enums.values(abi.Register)) |reg| {
-                    try writer.print("{} = {}", .{ reg, try ptrace.readRegister(pid, reg) });
+                    try writer.print("  {s} = 0x{x}\n", .{ @tagName(reg), try ptrace.readRegister(pid, reg) });
                 }
             },
             'v' => {
@@ -113,7 +117,7 @@ pub fn debug(allocator: std.mem.Allocator, reader: anytype, writer: anytype, elf
                     try writer.writeAll("Stepping over is only possible at call sites!\n");
                 }
 
-                _ = try sourceLevelSingleStep(allocator, pid, &dwarf_info, &bps);
+                _ = try sourceLevelSingleStep(allocator, pid, dwarf_info, &bps);
                 pc = try stepOut(pid, &bps);
                 try LineTable.printSource(dwarf_info, allocator, writer, pc);
             },

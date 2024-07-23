@@ -28,7 +28,7 @@ pub fn main() !void {
     var res = try clap.parse(clap.Help, &PARAMS, clap.parsers.default, .{ .allocator = allocator });
     defer res.deinit();
 
-    var elf_file_path: []const u8 = "zig-out/bin/example";
+    var elf_file_path: []const u8 = "zig-out/bin/basic";
 
     if (res.positionals.len > 0) {
         elf_file_path = res.positionals[0];

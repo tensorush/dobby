@@ -12,7 +12,7 @@ pub const Location = struct {
 };
 
 saved_inst: abi.trap_inst_width_t = undefined,
-loc: ?Location = null,
+loc: Location = undefined,
 is_set: bool = false,
 pid: std.posix.pid_t,
 addr: usize,

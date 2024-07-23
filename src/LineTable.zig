@@ -2,9 +2,9 @@ const std = @import("std");
 const config = @import("config.zig");
 const Breakpoint = @import("Breakpoint.zig");
 
-pub fn printSource(self: *std.dwarf.DwarfInfo, allocator: std.mem.Allocator, writer: anytype, pc: usize) !void {
-    const compile_unit = try self.findCompileUnit(pc);
-    var bp_line_info = try self.getLineNumberInfo(allocator, compile_unit.*, pc);
+pub fn printSource(dwarf_info: *std.dwarf.DwarfInfo, allocator: std.mem.Allocator, writer: anytype, pc: usize) !void {
+    const compile_unit = try dwarf_info.findCompileUnit(pc);
+    var bp_line_info = try dwarf_info.getLineNumberInfo(allocator, compile_unit.*, pc);
     defer bp_line_info.deinit(allocator);
 
     var file = try std.fs.cwd().openFile(bp_line_info.file_name, .{});
@@ -13,12 +13,12 @@ pub fn printSource(self: *std.dwarf.DwarfInfo, allocator: std.mem.Allocator, wri
 
     var line_buf: [config.MAX_LINE_LEN]u8 = undefined;
     var line_num: u32 = 1;
-    while (line_num < bp_line_info.line_num - 1) : (line_num += 1) {
+    while (line_num < bp_line_info.line - 1) : (line_num += 1) {
         const line = try reader.readUntilDelimiterOrEof(line_buf[0..], '\n');
         _ = line.?;
     }
 
-    while (line_num < bp_line_info.line_num + 2) {
+    while (line_num < bp_line_info.line + 2) {
         const line = try reader.readUntilDelimiterOrEof(line_buf[0..], '\n');
         try writer.print("{} {s}\n", .{ line_num, line.? });
     }
@@ -36,7 +36,7 @@ pub fn getLineAddress(
     var fbr = std.dwarf.FixedBufferReader{ .buf = dwarf_info.section(.debug_line).?, .endian = dwarf_info.endian };
     try fbr.seekTo(line_info_offset);
 
-    const unit_header = try std.dwarf.readUnitHeader(&fbr, null);
+    const unit_header = try std.dwarf.readUnitHeader(&fbr);
     if (unit_header.unit_length == 0) return std.dwarf.missingDwarf();
     const next_offset = unit_header.header_length + unit_header.unit_length;
 
@@ -291,7 +291,7 @@ fn checkLineMatch(
     bp_loc: Breakpoint.Location,
 ) !?usize {
     if (prog.prev_valid and
-        bp_loc.line == prog.prev_line)
+        bp_loc.line_num == prog.prev_line)
     {
         const file_index = if (prog.version >= 5) prog.prev_file else i: {
             if (prog.prev_file == 0) return std.dwarf.missingDwarf();
