@@ -68,14 +68,15 @@ pub fn debug(allocator: std.mem.Allocator, reader: anytype, writer: anytype, elf
                         .line_num = line_num,
                     };
                 };
-                const bp_addr = try LineTable.getLineAddress(dwarf_info, allocator, bp_loc);
+                const bp_dwarf_addr = try LineTable.getLineAddress(dwarf_info, allocator, bp_loc);
+                const bp_addr = bp_dwarf_addr + debug_info.base_address;
 
                 if (bps.fetchRemove(bp_addr)) |kv| {
                     var bp = kv.value;
                     try bp.unset();
                 } else {
                     bps.putAssumeCapacity(
-                        try ptrace.readRegister(pid, abi.PC),
+                        bp_addr,
                         try Breakpoint.initLocation(pid, bp_addr, bp_loc),
                     );
                 }
@@ -92,11 +93,12 @@ pub fn debug(allocator: std.mem.Allocator, reader: anytype, writer: anytype, elf
             't' => @panic("TODO"),
             'a' => {
                 try assemblyLevelSingleStep(pid, &bps);
-                try LineTable.printSource(dwarf_info, allocator, writer, try ptrace.readRegister(pid, abi.PC));
+                const pc_dwarf = try ptrace.readRegister(pid, abi.PC) - debug_info.base_address;
+                try LineTable.printSource(dwarf_info, allocator, writer, pc_dwarf);
             },
             's' => {
-                const pc = try sourceLevelSingleStep(allocator, pid, dwarf_info, &bps);
-                try LineTable.printSource(dwarf_info, allocator, writer, pc);
+                const pc_dwarf = try sourceLevelSingleStep(allocator, pid, dwarf_info, &bps, debug_info.base_address);
+                try LineTable.printSource(dwarf_info, allocator, writer, pc_dwarf);
             },
             'p' => @panic("TODO"),
             'd' => {
@@ -105,11 +107,11 @@ pub fn debug(allocator: std.mem.Allocator, reader: anytype, writer: anytype, elf
                 }
             },
             'v' => {
-                var pc = try ptrace.readRegister(pid, abi.PC);
+                var pc_dwarf = try ptrace.readRegister(pid, abi.PC) - debug_info.base_address;
                 blk: {
                     for (dwarf_info.func_list.items) |func| {
                         if (func.pc_range) |pc_range| {
-                            if (pc_range.start == pc) {
+                            if (pc_range.start == pc_dwarf) {
                                 break :blk;
                             }
                         }
@@ -117,13 +119,13 @@ pub fn debug(allocator: std.mem.Allocator, reader: anytype, writer: anytype, elf
                     try writer.writeAll("Stepping over is only possible at call sites!\n");
                 }
 
-                _ = try sourceLevelSingleStep(allocator, pid, dwarf_info, &bps);
-                pc = try stepOut(pid, &bps);
-                try LineTable.printSource(dwarf_info, allocator, writer, pc);
+                _ = try sourceLevelSingleStep(allocator, pid, dwarf_info, &bps, debug_info.base_address);
+                pc_dwarf = try stepOut(pid, &bps) - debug_info.base_address;
+                try LineTable.printSource(dwarf_info, allocator, writer, pc_dwarf);
             },
             'o' => {
-                const pc = try stepOut(pid, &bps);
-                try LineTable.printSource(dwarf_info, allocator, writer, pc);
+                const pc_dwarf = try stepOut(pid, &bps) - debug_info.base_address;
+                try LineTable.printSource(dwarf_info, allocator, writer, pc_dwarf);
             },
             'c' => {
                 if (bps.getPtr(try ptrace.readRegister(pid, abi.PC))) |bp| {
@@ -132,8 +134,8 @@ pub fn debug(allocator: std.mem.Allocator, reader: anytype, writer: anytype, elf
                     }
                 }
 
-                const pc = try ptrace.continueExecution(pid);
-                try LineTable.printSource(dwarf_info, allocator, writer, pc);
+                const pc_dwarf = try ptrace.continueExecution(pid) - debug_info.base_address;
+                try LineTable.printSource(dwarf_info, allocator, writer, pc_dwarf);
             },
             'r' => {
                 try std.posix.kill(pid, std.posix.SIG.KILL);
@@ -162,17 +164,23 @@ pub fn assemblyLevelSingleStep(pid: std.posix.pid_t, bps: *std.AutoHashMapUnmana
     }
 }
 
-pub fn sourceLevelSingleStep(allocator: std.mem.Allocator, pid: std.posix.pid_t, dwarf_info: *std.dwarf.DwarfInfo, bps: *std.AutoHashMapUnmanaged(usize, Breakpoint)) !usize {
-    var pc = try ptrace.readRegister(pid, abi.PC);
-    const compile_unit = try dwarf_info.findCompileUnit(pc);
-    var line_info = try dwarf_info.getLineNumberInfo(allocator, compile_unit.*, pc);
+pub fn sourceLevelSingleStep(
+    allocator: std.mem.Allocator,
+    pid: std.posix.pid_t,
+    dwarf_info: *std.dwarf.DwarfInfo,
+    bps: *std.AutoHashMapUnmanaged(usize, Breakpoint),
+    base_addr: usize,
+) !usize {
+    var pc_dwarf = try ptrace.readRegister(pid, abi.PC) - base_addr;
+    const compile_unit = try dwarf_info.findCompileUnit(pc_dwarf);
+    var line_info = try dwarf_info.getLineNumberInfo(allocator, compile_unit.*, pc_dwarf);
     defer line_info.deinit(allocator);
 
     while (true) {
         try assemblyLevelSingleStep(pid, bps);
 
-        pc = try ptrace.readRegister(pid, abi.PC);
-        var new_line_info = try dwarf_info.getLineNumberInfo(allocator, compile_unit.*, pc);
+        pc_dwarf = try ptrace.readRegister(pid, abi.PC) - base_addr;
+        var new_line_info = try dwarf_info.getLineNumberInfo(allocator, compile_unit.*, pc_dwarf);
         defer new_line_info.deinit(allocator);
 
         if (std.meta.eql(new_line_info, line_info)) {
@@ -180,7 +188,7 @@ pub fn sourceLevelSingleStep(allocator: std.mem.Allocator, pid: std.posix.pid_t,
         }
     }
 
-    return pc;
+    return pc_dwarf;
 }
 
 pub fn stepOut(pid: std.posix.pid_t, bps: *std.AutoHashMapUnmanaged(usize, Breakpoint)) !usize {

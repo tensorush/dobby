@@ -2,9 +2,9 @@ const std = @import("std");
 const config = @import("config.zig");
 const Breakpoint = @import("Breakpoint.zig");
 
-pub fn printSource(dwarf_info: *std.dwarf.DwarfInfo, allocator: std.mem.Allocator, writer: anytype, pc: usize) !void {
-    const compile_unit = try dwarf_info.findCompileUnit(pc);
-    var bp_line_info = try dwarf_info.getLineNumberInfo(allocator, compile_unit.*, pc);
+pub fn printSource(dwarf_info: *std.dwarf.DwarfInfo, allocator: std.mem.Allocator, writer: anytype, dwarf_addr: usize) !void {
+    const compile_unit = try dwarf_info.findCompileUnit(dwarf_addr);
+    var bp_line_info = try dwarf_info.getLineNumberInfo(allocator, compile_unit.*, dwarf_addr);
     defer bp_line_info.deinit(allocator);
 
     var file = try std.fs.cwd().openFile(bp_line_info.file_name, .{});
