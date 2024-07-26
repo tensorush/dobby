@@ -3,13 +3,13 @@ const builtin = @import("builtin");
 
 pub const PC: Register = switch (builtin.cpu.arch) {
     .x86_64 => .rip,
-    .aarch64 => .pc,
+    .aarch64, .aarch64_be, .aarch64_32 => .pc,
     else => unreachable,
 };
 
 pub const TRAP_INST: trap_inst_width_t = switch (builtin.cpu.arch) {
     .x86_64 => 0xCC, // "int3"
-    .aarch64 => 0xD420_0000, // "brk #0"
+    .aarch64, .aarch64_be, .aarch64_32 => 0xD420_0000, // "brk #0"
     else => unreachable,
 };
 
@@ -17,7 +17,7 @@ pub const TRAP_INST_MASK: usize = ~@as(usize, std.math.maxInt(trap_inst_width_t)
 
 pub const trap_inst_width_t = switch (builtin.cpu.arch) {
     .x86_64 => u8,
-    .aarch64 => u32,
+    .aarch64, .aarch64_be, .aarch64_32 => u32,
     else => unreachable,
 };
 
@@ -50,7 +50,7 @@ pub const Register = switch (builtin.cpu.arch) {
         fs_base = 58,
         gs_base,
     },
-    .aarch64 => enum {
+    .aarch64, .aarch64_be, .aarch64_32 => enum {
         r0,
         r1,
         r2,
